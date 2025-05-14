@@ -137,7 +137,7 @@ impl ControllerMessage {
                     } 
                 },
                 CONTROLLER_MESSAGE_ID_GET_PARAM => {
-                    if rx_buffer.count() > 2 {
+                    if rx_buffer.count() >= 2 {
                         rx_buffer.pop();
                         let param_id = rx_buffer.pop().unwrap();
                         return Ok(Some(ControllerMessage::GetParam(Parameter::try_from(param_id)?)));
