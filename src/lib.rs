@@ -133,8 +133,36 @@ impl ControllerMessage {
                     if rx_buffer.count() >= 2 {
                         rx_buffer.pop();
                         let state = rx_buffer.pop().unwrap();
-                        return Ok(Some(ControllerMessage::SetDebugLed(state != 0)))
+                        return Ok(Some(ControllerMessage::SetDebugLed(state != 0)));
                     } 
+                },
+                CONTROLLER_MESSAGE_ID_GET_PARAM => {
+                    if rx_buffer.count() > 2 {
+                        rx_buffer.pop();
+                        let param_id = rx_buffer.pop().unwrap();
+                        return Ok(Some(ControllerMessage::GetParam(Parameter::try_from(param_id)?)));
+                    }
+                },
+                CONTROLLER_MESSAGE_ID_SET_PARAM => {
+                    if rx_buffer.count() >= 4 {
+                        rx_buffer.pop();
+                        let param_id = rx_buffer.pop().unwrap();
+                        let param_value = 
+                            ((rx_buffer.pop().unwrap() as u16) << 0) |
+                            ((rx_buffer.pop().unwrap() as u16) << 8);
+                            return Ok(Some(ControllerMessage::SetParam(Parameter::try_from(param_id)?, param_value)));
+                    }
+                },
+                CONTROLLER_MESSAGE_ID_GET_STAT => {
+                    if rx_buffer.count() > 2 {
+                        rx_buffer.pop();
+                        let param_id = rx_buffer.pop().unwrap();
+                        return Ok(Some(ControllerMessage::GetStat(Statistic::try_from(param_id)?)));
+                    }
+                },
+                CONTROLLER_MESSAGE_ID_RESET_STATS => {
+                    rx_buffer.pop();
+                    return Ok(Some(ControllerMessage::ResetStats));
                 },
                 CONTROLLER_MESSAGE_ID_PING => {
                     if rx_buffer.count() >= 5 {
@@ -144,20 +172,8 @@ impl ControllerMessage {
                             (rx_buffer.pop().ok_or(())? as u32) << 8  |
                             (rx_buffer.pop().ok_or(())? as u32) << 16 |
                             (rx_buffer.pop().ok_or(())? as u32) << 24;
-                        return Ok(Some(ControllerMessage::Ping(seq)))
+                        return Ok(Some(ControllerMessage::Ping(seq)));
                     }
-                },
-                CONTROLLER_MESSAGE_ID_GET_PARAM => {
-                    todo!()
-                },
-                CONTROLLER_MESSAGE_ID_SET_PARAM => {
-                    todo!()
-                },
-                CONTROLLER_MESSAGE_ID_GET_STAT => {
-                    todo!()
-                },
-                CONTROLLER_MESSAGE_ID_RESET_STATS => {
-                    todo!()
                 },
                 _ => {
                     rx_buffer.pop();
@@ -198,14 +214,22 @@ impl RemoteMessage {
 
             Self::GetParamResult(param, value) => {
                 if tx_buffer.free_space() >= 4 {
-                    todo!()
+                    tx_buffer.push(REMOTE_MESSAGE_ID_GET_PARAM_RESULT);
+                    tx_buffer.push((*param).into());
+                    tx_buffer.push(((*value >>  0) & 0xFF) as u8);
+                    tx_buffer.push(((*value >>  8) & 0xFF) as u8);
+                    true
                 } else {
                     false
                 }
             },
             Self::GetStatResult(stat, value) => {
                 if tx_buffer.free_space() >= 4 {
-                    todo!()
+                    tx_buffer.push(REMOTE_MESSAGE_ID_GET_STAT_RESULT);
+                    tx_buffer.push((*stat).into());
+                    tx_buffer.push(((*value >>  0) & 0xFF) as u8);
+                    tx_buffer.push(((*value >>  8) & 0xFF) as u8);
+                    true
                 } else {
                     false
                 }
