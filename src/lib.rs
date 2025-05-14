@@ -1,3 +1,5 @@
+#![no_std]
+
 mod serial_buffer;
 pub use serial_buffer::*;
 
