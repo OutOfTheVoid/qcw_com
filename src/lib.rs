@@ -168,10 +168,10 @@ impl ControllerMessage {
                     if rx_buffer.count() >= 5 {
                         rx_buffer.pop();
                         let seq = 
-                            (rx_buffer.pop().ok_or(())? as u32) << 0  |
-                            (rx_buffer.pop().ok_or(())? as u32) << 8  |
-                            (rx_buffer.pop().ok_or(())? as u32) << 16 |
-                            (rx_buffer.pop().ok_or(())? as u32) << 24;
+                            (rx_buffer.pop().unwrap() as u32) << 0  |
+                            (rx_buffer.pop().unwrap() as u32) << 8  |
+                            (rx_buffer.pop().unwrap() as u32) << 16 |
+                            (rx_buffer.pop().unwrap() as u32) << 24;
                         return Ok(Some(ControllerMessage::Ping(seq)));
                     }
                 },
@@ -237,33 +237,45 @@ impl RemoteMessage {
         }
     }
 
-    pub fn try_receive<const N: usize>(buffer: &mut SerialBuffer<N>) -> Option<Self> {
+    pub fn try_receive<const N: usize>(buffer: &mut SerialBuffer<N>) -> Result<Option<Self>, ()> {
         if let Some(id) = buffer.peek() {
             let length = match id {
                 REMOTE_MESSAGE_ID_GET_PARAM_RESULT => 4,
                 REMOTE_MESSAGE_ID_GET_STAT_RESULT  => 4,
                 REMOTE_MESSAGE_ID_PING             => 5,
-                _ => { buffer.pop(); return None }
+                _ => { buffer.pop(); return Err(()) }
             };
             if buffer.count() >= length {
                 match buffer.pop().unwrap() {
-                    REMOTE_MESSAGE_ID_GET_PARAM_RESULT => todo!(),
-                    REMOTE_MESSAGE_ID_GET_STAT_RESULT => todo!(),
+                    REMOTE_MESSAGE_ID_GET_PARAM_RESULT => {
+                        let param = Parameter::try_from(buffer.pop().unwrap())?;
+                        let value =
+                            ((buffer.pop().unwrap() as u16) <<  0) |
+                            ((buffer.pop().unwrap() as u16) <<  8);
+                        Ok(Some(Self::GetParamResult(param, value)))
+                    },
+                    REMOTE_MESSAGE_ID_GET_STAT_RESULT => {
+                        let stat = Statistic::try_from(buffer.pop().unwrap())?;
+                        let value =
+                            ((buffer.pop().unwrap() as u16) <<  0) |
+                            ((buffer.pop().unwrap() as u16) <<  8);
+                        Ok(Some(Self::GetStatResult(stat, value)))
+                    },
                     REMOTE_MESSAGE_ID_PING => {
                         let seq = 
                             ((buffer.pop().unwrap() as u32) <<  0) |
                             ((buffer.pop().unwrap() as u32) <<  8) |
                             ((buffer.pop().unwrap() as u32) << 16) |
                             ((buffer.pop().unwrap() as u32) << 24);
-                        Some(Self::Ping(seq))
+                        Ok(Some(Self::Ping(seq)))
                     },
-                    _ => None
+                    _ => unreachable!()
                 }
             } else {
-                None
+                Ok(None)
             }
         } else {
-            None
+            Ok(None)
         }
     }
 }
