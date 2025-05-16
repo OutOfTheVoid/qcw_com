@@ -180,66 +180,57 @@ impl ControllerMessage {
             rx_buffer.pop();
         }
         if let Some(id) = rx_buffer.peek() {
-            match id & !MESSAGE_START_BIT {
-                CONTROLLER_MESSAGE_ID_SET_DEBUG_LED => {
-                    if rx_buffer.count() >= 2 {
-                        rx_buffer.pop();
+            let id = id & !MESSAGE_START_BIT;
+            let length = match id {
+                CONTROLLER_MESSAGE_ID_SET_DEBUG_LED => 2,
+                CONTROLLER_MESSAGE_ID_GET_PARAM => 2,
+                CONTROLLER_MESSAGE_ID_SET_PARAM => 4,
+                CONTROLLER_MESSAGE_ID_GET_STAT => 2,
+                CONTROLLER_MESSAGE_ID_RESET_STATS => 1,
+                CONTROLLER_MESSAGE_ID_PING => 5,
+                _ => {
+                    rx_buffer.pop();
+                    Err(())?
+                }
+            };
+            if rx_buffer.count() >= length {
+                rx_buffer.pop();
+                match id {
+                    CONTROLLER_MESSAGE_ID_SET_DEBUG_LED => {
                         let state = rx_buffer.pop().unwrap();
                         return Ok(Some(ControllerMessage::SetDebugLed(state != 0)));
-                    } 
-                },
-                CONTROLLER_MESSAGE_ID_GET_PARAM => {
-                    if rx_buffer.count() >= 2 {
-                        rx_buffer.pop();
+                    },
+                    CONTROLLER_MESSAGE_ID_GET_PARAM => {
                         let param_id = rx_buffer.pop().unwrap();
                         return Ok(Some(ControllerMessage::GetParam(Parameter::try_from(param_id)?)));
-                    }
-                },
-                CONTROLLER_MESSAGE_ID_SET_PARAM => {
-                    if rx_buffer.count() >= 4 {
-                        rx_buffer.pop();
+                    },
+                    CONTROLLER_MESSAGE_ID_SET_PARAM => {
                         let param_id = rx_buffer.pop().unwrap();
-                        let param_value = 
+                        let mut param_value = 
                             ((rx_buffer.pop().unwrap() as u16) << 0) |
                             ((rx_buffer.pop().unwrap() as u16) << 7);
                         let param = Parameter::try_from(param_id)?;
-                        let param_value = if param.sign_extend() {
-                            if (param_value & 0x20) != 0 {
-                                param_value | 0xC0
-                            } else {
-                                param_value
-                            }
-                        } else {
-                            param_value
-                        };
+                        if param.sign_extend() && (param_value & 0x20) != 0 {
+                            param_value |= 0xC000;
+                        }
                         return Ok(Some(ControllerMessage::SetParam(param, param_value)));
-                    }
-                },
-                CONTROLLER_MESSAGE_ID_GET_STAT => {
-                    if rx_buffer.count() > 2 {
-                        rx_buffer.pop();
+                    },
+                    CONTROLLER_MESSAGE_ID_GET_STAT => {
                         let param_id = rx_buffer.pop().unwrap();
                         return Ok(Some(ControllerMessage::GetStat(Statistic::try_from(param_id)?)));
-                    }
-                },
-                CONTROLLER_MESSAGE_ID_RESET_STATS => {
-                    rx_buffer.pop();
-                    return Ok(Some(ControllerMessage::ResetStats));
-                },
-                CONTROLLER_MESSAGE_ID_PING => {
-                    if rx_buffer.count() >= 5 {
-                        rx_buffer.pop();
+                    },
+                    CONTROLLER_MESSAGE_ID_RESET_STATS => {
+                        return Ok(Some(ControllerMessage::ResetStats));
+                    },
+                    CONTROLLER_MESSAGE_ID_PING => {
                         let seq = 
                             (rx_buffer.pop().unwrap() as u32) << 0  |
                             (rx_buffer.pop().unwrap() as u32) << 7  |
                             (rx_buffer.pop().unwrap() as u32) << 14 |
                             (rx_buffer.pop().unwrap() as u32) << 21;
                         return Ok(Some(ControllerMessage::Ping(seq)));
-                    }
-                },
-                _ => {
-                    rx_buffer.pop();
-                    return Err(());
+                    },
+                    _ => unreachable!()
                 }
             }
         }
@@ -319,19 +310,13 @@ impl RemoteMessage {
                 match id {
                     REMOTE_MESSAGE_ID_GET_PARAM_RESULT => {
                         let param_id = rx_buffer.pop().unwrap();
-                        let param_value = 
+                        let mut param_value = 
                             ((rx_buffer.pop().unwrap() as u16) << 0) |
                             ((rx_buffer.pop().unwrap() as u16) << 7);
                         let param = Parameter::try_from(param_id)?;
-                        let param_value = if param.sign_extend() {
-                            if (param_value & 0x20) != 0 {
-                                param_value | 0xC0
-                            } else {
-                                param_value
-                            }
-                        } else {
-                            param_value
-                        };
+                        if param.sign_extend() && (param_value & 0x20) != 0 {
+                            param_value |= 0xC000;
+                        }
                         return Ok(Some(RemoteMessage::GetParamResult(param, param_value)));
                     },
                     REMOTE_MESSAGE_ID_GET_STAT_RESULT => {
