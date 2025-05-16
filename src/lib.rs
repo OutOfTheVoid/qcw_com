@@ -210,7 +210,7 @@ impl ControllerMessage {
                             ((rx_buffer.pop().unwrap() as u16) << 0) |
                             ((rx_buffer.pop().unwrap() as u16) << 7);
                         let param = Parameter::try_from(param_id)?;
-                        if param.sign_extend() && (param_value & 0x20) != 0 {
+                        if param.sign_extend() && (param_value & 0x2000) != 0 {
                             param_value |= 0xC000;
                         }
                         return Ok(Some(ControllerMessage::SetParam(param, param_value)));
@@ -314,7 +314,7 @@ impl RemoteMessage {
                             ((rx_buffer.pop().unwrap() as u16) << 0) |
                             ((rx_buffer.pop().unwrap() as u16) << 7);
                         let param = Parameter::try_from(param_id)?;
-                        if param.sign_extend() && (param_value & 0x20) != 0 {
+                        if param.sign_extend() && (param_value & 0x2000) != 0 {
                             param_value |= 0xC000;
                         }
                         return Ok(Some(RemoteMessage::GetParamResult(param, param_value)));
