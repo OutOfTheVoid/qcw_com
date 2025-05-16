@@ -17,6 +17,23 @@ pub enum Parameter {
     CurrentLimit,
 }
 
+impl Parameter {
+    fn sign_extend(&self) -> bool {
+        match self {
+            Self::DelayCompensation => true,
+            Self::StartupFrequency  |
+            Self::RunMode           |
+            Self::LockTime          |
+            Self::StartupTime       |
+            Self::OnTime            |
+            Self::RampStart         |
+            Self::RampEnd           |
+            Self::MinLockCurrent    |
+            Self::CurrentLimit      => false,
+        }
+    }
+}
+
 const PARAMETER_ID_DELAY_COMP       : u8 = 1;
 const PARAMETER_ID_STARTUP_FREQ     : u8 = 2;
 const PARAMETER_ID_RUN_MODE         : u8 = 3;
@@ -185,7 +202,17 @@ impl ControllerMessage {
                         let param_value = 
                             ((rx_buffer.pop().unwrap() as u16) << 0) |
                             ((rx_buffer.pop().unwrap() as u16) << 7);
-                            return Ok(Some(ControllerMessage::SetParam(Parameter::try_from(param_id)?, param_value)));
+                        let param = Parameter::try_from(param_id)?;
+                        let param_value = if param.sign_extend() {
+                            if (param_value & 0x20) != 0 {
+                                param_value | 0xC0
+                            } else {
+                                param_value
+                            }
+                        } else {
+                            param_value
+                        };
+                        return Ok(Some(ControllerMessage::SetParam(param, param_value)));
                     }
                 },
                 CONTROLLER_MESSAGE_ID_GET_STAT => {
@@ -291,11 +318,21 @@ impl RemoteMessage {
                 _ = rx_buffer.pop();
                 match id {
                     REMOTE_MESSAGE_ID_GET_PARAM_RESULT => {
-                        let param = Parameter::try_from(rx_buffer.pop().unwrap())?;
-                        let value =
-                            ((rx_buffer.pop().unwrap() as u16) <<  0) |
-                            ((rx_buffer.pop().unwrap() as u16) <<  7);
-                        Ok(Some(Self::GetParamResult(param, value)))
+                        let param_id = rx_buffer.pop().unwrap();
+                        let param_value = 
+                            ((rx_buffer.pop().unwrap() as u16) << 0) |
+                            ((rx_buffer.pop().unwrap() as u16) << 7);
+                        let param = Parameter::try_from(param_id)?;
+                        let param_value = if param.sign_extend() {
+                            if (param_value & 0x20) != 0 {
+                                param_value | 0xC0
+                            } else {
+                                param_value
+                            }
+                        } else {
+                            param_value
+                        };
+                        return Ok(Some(RemoteMessage::GetParamResult(param, param_value)));
                     },
                     REMOTE_MESSAGE_ID_GET_STAT_RESULT => {
                         let stat = Statistic::try_from(rx_buffer.pop().unwrap())?;
