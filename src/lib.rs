@@ -11,26 +11,97 @@ pub enum Parameter {
     LockTime,
     StartupTime,
     OnTime,
-    RampStart,
-    RampEnd,
+    OffTime,
+    RampStartPower,
+    RampEndPower,
     MinLockCurrent,
     CurrentLimit,
 }
 
-impl Parameter {
-    fn sign_extend(&self) -> bool {
+#[derive(Copy, Clone, Debug)]
+pub enum ParameterValue {
+    DelayCompensationNS(i16),
+    StartupFrequencyHz(f32),
+    RunMode(RunMode),
+    LockTimeUs(u16),
+    StartupTimeUs(u16),
+    OnTimeUs(u16),
+    OffTimeMs(u16),
+    RampStartPower(f32),
+    RampEndPower(f32),
+    MinLockCurrentA(f32),
+    CurrentLimitA(f32),
+}
+
+fn sign_extend_i14(x: u16) -> i16 {
+    if (x & 0x2000) != 0 {
+        (x | 0xC000) as i16
+    } else {
+        x as i16
+    }
+}
+
+impl TryFrom<(Parameter, u16)> for ParameterValue {
+    type Error = ();
+    fn try_from(x: (Parameter, u16)) -> Result<Self, ()> {
+        let (param, value) = x;
+        Ok(match param {
+            Parameter::DelayCompensation => Self::DelayCompensationNS(sign_extend_i14(value)),
+            Parameter::StartupFrequency => Self::StartupFrequencyHz(value as f32 / 16.0),
+            Parameter::RunMode => Self::RunMode(RunMode::try_from(value)?),
+            Parameter::LockTime => Self::LockTimeUs(value),
+            Parameter::StartupTime => Self::StartupTimeUs(value),
+            Parameter::OnTime => Self::OnTimeUs(value * 10),
+            Parameter::OffTime => Self::OffTimeMs(value),
+            Parameter::RampStartPower => Self::RampStartPower(value as f32 / 16383.0),
+            Parameter::RampEndPower => Self::RampEndPower(value as f32 / 16383.0),
+            Parameter::MinLockCurrent => Self::MinLockCurrentA(value as f32 / 256.0),
+            Parameter::CurrentLimit => Self::CurrentLimitA(value as f32 / 32.0)
+        })
+    }
+}
+
+impl Into<(Parameter, u16)> for ParameterValue {
+    fn into(self) -> (Parameter, u16) {
         match self {
-            Self::DelayCompensation => true,
-            Self::StartupFrequency  |
-            Self::RunMode           |
-            Self::LockTime          |
-            Self::StartupTime       |
-            Self::OnTime            |
-            Self::RampStart         |
-            Self::RampEnd           |
-            Self::MinLockCurrent    |
-            Self::CurrentLimit      => false,
+            Self::DelayCompensationNS(delay_ns)    => (Parameter::DelayCompensation, delay_ns as u16),
+            Self::StartupFrequencyHz(frequency_hz) => (Parameter::StartupFrequency, (frequency_hz * 16.0) as u16),
+            Self::RunMode(run_mode)                => (Parameter::RunMode, run_mode.into()),
+            Self::LockTimeUs(time)                 => (Parameter::LockTime, time),
+            Self::StartupTimeUs(time)              => (Parameter::StartupTime, time),
+            Self::OnTimeUs(time)                   => (Parameter::OnTime, time / 10),
+            Self::OffTimeMs(time)                  => (Parameter::OffTime, time),
+            Self::RampStartPower(power)            => (Parameter::RampStartPower, (power * 16384.0).clamp(0.0, 16383.0) as u16),
+            Self::RampEndPower(power)              => (Parameter::RampEndPower, (power * 16384.0).clamp(0.0, 16383.0) as u16),
+            Self::MinLockCurrentA(current)         => (Parameter::MinLockCurrent, (current * 256.0).clamp(0.0, 16383.0) as u16),
+            Self::CurrentLimitA(current)           => (Parameter::CurrentLimit, (current * 32.0).clamp(0.0, 16383.0) as u16),
         }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum RunMode {
+    OpenLoop,
+    TestClosedLoop,
+}
+
+impl Into<u16> for RunMode {
+    fn into(self) -> u16 {
+        match self {
+            Self::OpenLoop        => 0,
+            Self::TestClosedLoop  => 1,
+        }
+    }
+}
+
+impl TryFrom<u16> for RunMode {
+    type Error = ();
+    fn try_from(value: u16) -> Result<Self, ()> {
+        Ok(match value {
+            0 => Self::OpenLoop,
+            1 => Self::TestClosedLoop,
+            _ => return Err(()),
+        })
     }
 }
 
@@ -40,10 +111,11 @@ const PARAMETER_ID_RUN_MODE         : u8 = 3;
 const PARAMETER_ID_LOCK_TIME        : u8 = 4;
 const PARAMETER_ID_STARTUP_TIME     : u8 = 5;
 const PARAMETER_ID_ON_TIME          : u8 = 6;
-const PARAMETER_ID_RAMP_START       : u8 = 7;
-const PARAMETER_ID_RAMP_END         : u8 = 8;
-const PARAMETER_ID_MIN_LOCK_CURRENT : u8 = 9;
-const PARAMETER_ID_CURRENT_LIMIT    : u8 = 10;
+const PARAMETER_ID_OFF_TIME         : u8 = 7;
+const PARAMETER_ID_RAMP_START       : u8 = 8;
+const PARAMETER_ID_RAMP_END         : u8 = 9;
+const PARAMETER_ID_MIN_LOCK_CURRENT : u8 = 10;
+const PARAMETER_ID_CURRENT_LIMIT    : u8 = 11;
 
 impl Into<u8> for Parameter {
     fn into(self) -> u8 {
@@ -54,8 +126,9 @@ impl Into<u8> for Parameter {
             Self::LockTime            => PARAMETER_ID_LOCK_TIME,
             Self::StartupTime         => PARAMETER_ID_STARTUP_TIME,
             Self::OnTime              => PARAMETER_ID_ON_TIME,
-            Self::RampStart           => PARAMETER_ID_RAMP_START,
-            Self::RampEnd             => PARAMETER_ID_RAMP_END,
+            Self::OffTime             => PARAMETER_ID_OFF_TIME,
+            Self::RampStartPower           => PARAMETER_ID_RAMP_START,
+            Self::RampEndPower             => PARAMETER_ID_RAMP_END,
             Self::MinLockCurrent      => PARAMETER_ID_MIN_LOCK_CURRENT,
             Self::CurrentLimit        => PARAMETER_ID_CURRENT_LIMIT,
         }
@@ -72,8 +145,9 @@ impl TryFrom<u8> for Parameter {
             PARAMETER_ID_LOCK_TIME        => Self::LockTime,
             PARAMETER_ID_STARTUP_TIME     => Self::StartupTime,
             PARAMETER_ID_ON_TIME          => Self::OnTime,
-            PARAMETER_ID_RAMP_START       => Self::RampStart,
-            PARAMETER_ID_RAMP_END         => Self::RampEnd,
+            PARAMETER_ID_OFF_TIME         => Self::OffTime,
+            PARAMETER_ID_RAMP_START       => Self::RampStartPower,
+            PARAMETER_ID_RAMP_END         => Self::RampEndPower,
             PARAMETER_ID_MIN_LOCK_CURRENT => Self::MinLockCurrent,
             PARAMETER_ID_CURRENT_LIMIT    => Self::CurrentLimit,
             _ => return Err(())
@@ -84,14 +158,43 @@ impl TryFrom<u8> for Parameter {
 #[derive(Copy, Clone, Debug)]
 pub enum Statistic {
     MaxPrimaryCurrent,
+    FeedbackFrequency,
 }
 
 const STATISTIC_ID_MAX_PRIMARY_CURRENT: u8 = 0;
+const STATISTIC_ID_FEEDBACK_FREQUENCY: u8 = 1;
+
+#[derive(Copy, Clone, Debug)]
+pub enum StatisticValue {
+    MaxPrimaryCurrentA(f32),
+    FeedbackFrequency(f32),
+}
+
+impl Into<(Statistic, u16)> for StatisticValue {
+    fn into(self) -> (Statistic, u16) {
+        match self {
+            Self::MaxPrimaryCurrentA(current) => (Statistic::MaxPrimaryCurrent, (current * 32.0).clamp(0.0, 16383.0) as u16),
+            Self::FeedbackFrequency(frequency) => (Statistic::FeedbackFrequency, (frequency * 16.0).clamp(0.0, 16383.0) as u16),
+        }
+    }
+}
+
+impl TryFrom<(Statistic, u16)> for StatisticValue {
+    type Error = ();
+    fn try_from(x: (Statistic, u16)) -> Result<Self, Self::Error> {
+        let (stat, value) = x;
+        Ok(match stat {
+            Statistic::MaxPrimaryCurrent => Self::MaxPrimaryCurrentA(value as f32 / 32.0),
+            Statistic::FeedbackFrequency => Self::FeedbackFrequency(value as f32 / 16.0),
+        })
+    }
+}
 
 impl Into<u8> for Statistic {
     fn into(self) -> u8 {
         match self {
             Self::MaxPrimaryCurrent => STATISTIC_ID_MAX_PRIMARY_CURRENT,
+            Self::FeedbackFrequency => STATISTIC_ID_FEEDBACK_FREQUENCY,
         }
     }
 }
@@ -112,9 +215,12 @@ const MESSAGE_START_BIT: u8 = 0x80;
 pub enum ControllerMessage {
     SetDebugLed(bool),
     GetParam(Parameter),
-    SetParam(Parameter, u16),
+    SetParam(ParameterValue),
     GetStat(Statistic),
     ResetStats,
+    KeepAlive,
+    Run,
+    Stop,
     Ping(u32),
 }
 
@@ -123,6 +229,9 @@ const CONTROLLER_MESSAGE_ID_GET_PARAM: u8 = 1;
 const CONTROLLER_MESSAGE_ID_SET_PARAM: u8 = 2;
 const CONTROLLER_MESSAGE_ID_GET_STAT: u8 = 3;
 const CONTROLLER_MESSAGE_ID_RESET_STATS: u8 = 4;
+const CONTROLLER_MESSAGE_ID_KEEP_ALIVE: u8 = 5;
+const CONTROLLER_MESSAGE_ID_RUN: u8 = 6;
+const CONTROLLER_MESSAGE_ID_STOP: u8 = 7;
 const CONTROLLER_MESSAGE_ID_PING: u8 = 0x7F;
 
 impl ControllerMessage {
@@ -133,6 +242,9 @@ impl ControllerMessage {
             Self::SetParam(..)    => 4,
             Self::GetStat(..)     => 2,
             Self::ResetStats      => 1,
+            Self::KeepAlive       => 1,
+            Self::Run             => 1,
+            Self::Stop            => 1,
             Self::Ping(..)        => 5,
         };
         if buffer.free_space() >= length {
@@ -145,9 +257,10 @@ impl ControllerMessage {
                     buffer.push(CONTROLLER_MESSAGE_ID_GET_PARAM | MESSAGE_START_BIT);
                     buffer.push((*param).into());
                 },
-                Self::SetParam(param, value) => {
+                Self::SetParam(parameter_value) => {
+                    let (param, value) = (*parameter_value).into();
                     buffer.push(CONTROLLER_MESSAGE_ID_SET_PARAM | MESSAGE_START_BIT);
-                    buffer.push((*param).into());
+                    buffer.push(param.into());
                     buffer.push(((value >> 0) & 0x7F) as u8);
                     buffer.push(((value >> 7) & 0x7F) as u8);
                 },
@@ -157,7 +270,16 @@ impl ControllerMessage {
                 },
                 Self::ResetStats => {
                     buffer.push(CONTROLLER_MESSAGE_ID_RESET_STATS | MESSAGE_START_BIT);
-                }
+                },
+                Self::KeepAlive => {
+                    buffer.push(CONTROLLER_MESSAGE_ID_KEEP_ALIVE | MESSAGE_START_BIT);
+                },
+                Self::Run => {
+                    buffer.push(CONTROLLER_MESSAGE_ID_RUN | MESSAGE_START_BIT);
+                },
+                Self::Stop => {
+                    buffer.push(CONTROLLER_MESSAGE_ID_STOP | MESSAGE_START_BIT);
+                },
                 Self::Ping(seq) => {
                     buffer.push(CONTROLLER_MESSAGE_ID_PING | MESSAGE_START_BIT);
                     buffer.push(((*seq >>  0) & 0x7F) as u8);
@@ -206,14 +328,12 @@ impl ControllerMessage {
                     },
                     CONTROLLER_MESSAGE_ID_SET_PARAM => {
                         let param_id = rx_buffer.pop().unwrap();
-                        let mut param_value = 
+                        let value = 
                             ((rx_buffer.pop().unwrap() as u16) << 0) |
                             ((rx_buffer.pop().unwrap() as u16) << 7);
                         let param = Parameter::try_from(param_id)?;
-                        if param.sign_extend() && (param_value & 0x2000) != 0 {
-                            param_value |= 0xC000;
-                        }
-                        return Ok(Some(ControllerMessage::SetParam(param, param_value)));
+                        let param_value = ParameterValue::try_from((param, value))?;
+                        return Ok(Some(ControllerMessage::SetParam(param_value)));
                     },
                     CONTROLLER_MESSAGE_ID_GET_STAT => {
                         let param_id = rx_buffer.pop().unwrap();
@@ -221,6 +341,15 @@ impl ControllerMessage {
                     },
                     CONTROLLER_MESSAGE_ID_RESET_STATS => {
                         return Ok(Some(ControllerMessage::ResetStats));
+                    },
+                    CONTROLLER_MESSAGE_ID_KEEP_ALIVE => {
+                        return Ok(Some(ControllerMessage::KeepAlive));
+                    },
+                    CONTROLLER_MESSAGE_ID_RUN => {
+                        return Ok(Some(ControllerMessage::Run));
+                    },
+                    CONTROLLER_MESSAGE_ID_STOP => {
+                        return Ok(Some(ControllerMessage::Stop));
                     },
                     CONTROLLER_MESSAGE_ID_PING => {
                         let seq = 
@@ -240,8 +369,8 @@ impl ControllerMessage {
 
 #[derive(Copy, Clone, Debug)]
 pub enum RemoteMessage {
-    GetParamResult(Parameter, u16),
-    GetStatResult(Statistic, u16),
+    GetParamResult(ParameterValue),
+    GetStatResult(StatisticValue),
     Ping(u32),
 }
 
@@ -265,23 +394,25 @@ impl RemoteMessage {
                 }
             },
 
-            Self::GetParamResult(param, value) => {
+            Self::GetParamResult(param_value) => {
                 if tx_buffer.free_space() >= 4 {
                     tx_buffer.push(REMOTE_MESSAGE_ID_GET_PARAM_RESULT | MESSAGE_START_BIT);
-                    tx_buffer.push((*param).into());
-                    tx_buffer.push(((*value >>  0) & 0x7F) as u8);
-                    tx_buffer.push(((*value >>  7) & 0x7F) as u8);
+                    let (param, value) = (*param_value).into();
+                    tx_buffer.push((param).into());
+                    tx_buffer.push(((value >>  0) & 0x7F) as u8);
+                    tx_buffer.push(((value >>  7) & 0x7F) as u8);
                     true
                 } else {
                     false
                 }
             },
-            Self::GetStatResult(stat, value) => {
+            Self::GetStatResult(stat_value) => {
                 if tx_buffer.free_space() >= 4 {
                     tx_buffer.push(REMOTE_MESSAGE_ID_GET_STAT_RESULT | MESSAGE_START_BIT);
-                    tx_buffer.push((*stat).into());
-                    tx_buffer.push(((*value >>  0) & 0xFF) as u8);
-                    tx_buffer.push(((*value >>  8) & 0xFF) as u8);
+                    let (stat, value) = (*stat_value).into();
+                    tx_buffer.push(stat.into());
+                    tx_buffer.push(((value >>  0) & 0x7F) as u8);
+                    tx_buffer.push(((value >>  7) & 0x7F) as u8);
                     true
                 } else {
                     false
@@ -310,21 +441,20 @@ impl RemoteMessage {
                 match id {
                     REMOTE_MESSAGE_ID_GET_PARAM_RESULT => {
                         let param_id = rx_buffer.pop().unwrap();
-                        let mut param_value = 
+                        let value = 
                             ((rx_buffer.pop().unwrap() as u16) << 0) |
                             ((rx_buffer.pop().unwrap() as u16) << 7);
                         let param = Parameter::try_from(param_id)?;
-                        if param.sign_extend() && (param_value & 0x2000) != 0 {
-                            param_value |= 0xC000;
-                        }
-                        return Ok(Some(RemoteMessage::GetParamResult(param, param_value)));
+                        let param_value = ParameterValue::try_from((param, value))?;
+                        return Ok(Some(RemoteMessage::GetParamResult(param_value)));
                     },
                     REMOTE_MESSAGE_ID_GET_STAT_RESULT => {
                         let stat = Statistic::try_from(rx_buffer.pop().unwrap())?;
                         let value =
                             ((rx_buffer.pop().unwrap() as u16) <<  0) |
                             ((rx_buffer.pop().unwrap() as u16) <<  7);
-                        Ok(Some(Self::GetStatResult(stat, value)))
+                        let stat_value = StatisticValue::try_from((stat, value))?;
+                        Ok(Some(Self::GetStatResult(stat_value)))
                     },
                     REMOTE_MESSAGE_ID_PING => {
                         let seq = 
