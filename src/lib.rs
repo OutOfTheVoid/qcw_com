@@ -148,8 +148,8 @@ impl ControllerMessage {
                 Self::SetParam(param, value) => {
                     buffer.push(CONTROLLER_MESSAGE_ID_SET_PARAM | MESSAGE_START_BIT);
                     buffer.push((*param).into());
-                    buffer.push(((value >> 0) & 0xFF) as u8);
-                    buffer.push(((value >> 8) & 0xFF) as u8);
+                    buffer.push(((value >> 0) & 0x7F) as u8);
+                    buffer.push(((value >> 7) & 0x7F) as u8);
                 },
                 Self::GetStat(stat) => {
                     buffer.push(CONTROLLER_MESSAGE_ID_GET_STAT | MESSAGE_START_BIT);
