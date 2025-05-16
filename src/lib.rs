@@ -123,7 +123,7 @@ const CONTROLLER_MESSAGE_ID_GET_PARAM: u8 = 1;
 const CONTROLLER_MESSAGE_ID_SET_PARAM: u8 = 2;
 const CONTROLLER_MESSAGE_ID_GET_STAT: u8 = 3;
 const CONTROLLER_MESSAGE_ID_RESET_STATS: u8 = 4;
-const CONTROLLER_MESSAGE_ID_PING: u8 = 0xFF;
+const CONTROLLER_MESSAGE_ID_PING: u8 = 0x7F;
 
 impl ControllerMessage {
     pub fn try_send<const N: usize>(&self, buffer: &mut SerialBuffer<N>) -> bool {
@@ -247,7 +247,7 @@ pub enum RemoteMessage {
 
 const REMOTE_MESSAGE_ID_GET_PARAM_RESULT: u8 = 0;
 const REMOTE_MESSAGE_ID_GET_STAT_RESULT: u8 = 1;
-const REMOTE_MESSAGE_ID_PING: u8 = 0xFF;
+const REMOTE_MESSAGE_ID_PING: u8 = 0x7F;
 
 impl RemoteMessage {
     pub fn try_send<const N: usize>(&self, tx_buffer: &mut SerialBuffer<N>) -> bool {
