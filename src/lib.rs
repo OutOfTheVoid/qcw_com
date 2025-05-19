@@ -3,7 +3,7 @@
 mod serial_buffer;
 pub use serial_buffer::*;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Parameter {
     DelayCompensation,
     StartupFrequency,
@@ -14,6 +14,7 @@ pub enum Parameter {
     OffTime,
     RampStartPower,
     RampEndPower,
+    FlatPower,
     MinLockCurrent,
     CurrentLimit,
 }
@@ -21,7 +22,7 @@ pub enum Parameter {
 #[derive(Copy, Clone, Debug)]
 pub enum ParameterValue {
     DelayCompensationNS(i16),
-    StartupFrequencyHz(f32),
+    StartupFrequencykHz(f32),
     RunMode(RunMode),
     LockTimeUs(u16),
     StartupTimeUs(u16),
@@ -29,8 +30,28 @@ pub enum ParameterValue {
     OffTimeMs(u16),
     RampStartPower(f32),
     RampEndPower(f32),
+    FlatPower(f32),
     MinLockCurrentA(f32),
     CurrentLimitA(f32),
+}
+
+impl ParameterValue {
+    pub fn parameter(&self) -> Parameter {
+        match self {
+            Self::DelayCompensationNS(..) => Parameter::CurrentLimit,
+            Self::StartupFrequencykHz(..) => Parameter::StartupFrequency,
+            Self::RunMode(..) => Parameter::RunMode,
+            Self::LockTimeUs(..) => Parameter::LockTime,
+            Self::StartupTimeUs(..) => Parameter::StartupTime,
+            Self::OnTimeUs(..) => Parameter::OnTime,
+            Self::OffTimeMs(..) => Parameter::OffTime,
+            Self::RampStartPower(..) => Parameter::RampStartPower,
+            Self::RampEndPower(..) => Parameter::RampEndPower,
+            Self::FlatPower(..) => Parameter::FlatPower,
+            Self::MinLockCurrentA(..) => Parameter::MinLockCurrent,
+            Self::CurrentLimitA(..) => Parameter::CurrentLimit,
+        }
+    }
 }
 
 fn sign_extend_i14(x: u16) -> i16 {
@@ -47,7 +68,7 @@ impl TryFrom<(Parameter, u16)> for ParameterValue {
         let (param, value) = x;
         Ok(match param {
             Parameter::DelayCompensation => Self::DelayCompensationNS(sign_extend_i14(value)),
-            Parameter::StartupFrequency => Self::StartupFrequencyHz(value as f32 / 16.0),
+            Parameter::StartupFrequency => Self::StartupFrequencykHz(value as f32 / 16.0),
             Parameter::RunMode => Self::RunMode(RunMode::try_from(value)?),
             Parameter::LockTime => Self::LockTimeUs(value),
             Parameter::StartupTime => Self::StartupTimeUs(value),
@@ -55,6 +76,7 @@ impl TryFrom<(Parameter, u16)> for ParameterValue {
             Parameter::OffTime => Self::OffTimeMs(value),
             Parameter::RampStartPower => Self::RampStartPower(value as f32 / 16383.0),
             Parameter::RampEndPower => Self::RampEndPower(value as f32 / 16383.0),
+            Parameter::FlatPower => Self::FlatPower(value as f32 / 16383.0),
             Parameter::MinLockCurrent => Self::MinLockCurrentA(value as f32 / 256.0),
             Parameter::CurrentLimit => Self::CurrentLimitA(value as f32 / 32.0)
         })
@@ -65,7 +87,7 @@ impl Into<(Parameter, u16)> for ParameterValue {
     fn into(self) -> (Parameter, u16) {
         match self {
             Self::DelayCompensationNS(delay_ns)    => (Parameter::DelayCompensation, delay_ns as u16),
-            Self::StartupFrequencyHz(frequency_hz) => (Parameter::StartupFrequency, (frequency_hz * 16.0) as u16),
+            Self::StartupFrequencykHz(frequency_hz) => (Parameter::StartupFrequency, (frequency_hz * 16.0) as u16),
             Self::RunMode(run_mode)                => (Parameter::RunMode, run_mode.into()),
             Self::LockTimeUs(time)                 => (Parameter::LockTime, time),
             Self::StartupTimeUs(time)              => (Parameter::StartupTime, time),
@@ -73,6 +95,7 @@ impl Into<(Parameter, u16)> for ParameterValue {
             Self::OffTimeMs(time)                  => (Parameter::OffTime, time),
             Self::RampStartPower(power)            => (Parameter::RampStartPower, (power * 16384.0).clamp(0.0, 16383.0) as u16),
             Self::RampEndPower(power)              => (Parameter::RampEndPower, (power * 16384.0).clamp(0.0, 16383.0) as u16),
+            Self::FlatPower(power)                 => (Parameter::FlatPower, (power * 16384.0).clamp(0.0, 16383.0) as u16),
             Self::MinLockCurrentA(current)         => (Parameter::MinLockCurrent, (current * 256.0).clamp(0.0, 16383.0) as u16),
             Self::CurrentLimitA(current)           => (Parameter::CurrentLimit, (current * 32.0).clamp(0.0, 16383.0) as u16),
         }
@@ -116,6 +139,7 @@ const PARAMETER_ID_RAMP_START       : u8 = 8;
 const PARAMETER_ID_RAMP_END         : u8 = 9;
 const PARAMETER_ID_MIN_LOCK_CURRENT : u8 = 10;
 const PARAMETER_ID_CURRENT_LIMIT    : u8 = 11;
+const PARAMETER_ID_FLAT_POWER       : u8 = 12;
 
 impl Into<u8> for Parameter {
     fn into(self) -> u8 {
@@ -127,10 +151,11 @@ impl Into<u8> for Parameter {
             Self::StartupTime         => PARAMETER_ID_STARTUP_TIME,
             Self::OnTime              => PARAMETER_ID_ON_TIME,
             Self::OffTime             => PARAMETER_ID_OFF_TIME,
-            Self::RampStartPower           => PARAMETER_ID_RAMP_START,
-            Self::RampEndPower             => PARAMETER_ID_RAMP_END,
+            Self::RampStartPower      => PARAMETER_ID_RAMP_START,
+            Self::RampEndPower        => PARAMETER_ID_RAMP_END,
             Self::MinLockCurrent      => PARAMETER_ID_MIN_LOCK_CURRENT,
             Self::CurrentLimit        => PARAMETER_ID_CURRENT_LIMIT,
+            Self::FlatPower           => PARAMETER_ID_FLAT_POWER,
         }
     }
 }
@@ -150,6 +175,7 @@ impl TryFrom<u8> for Parameter {
             PARAMETER_ID_RAMP_END         => Self::RampEndPower,
             PARAMETER_ID_MIN_LOCK_CURRENT => Self::MinLockCurrent,
             PARAMETER_ID_CURRENT_LIMIT    => Self::CurrentLimit,
+            PARAMETER_ID_FLAT_POWER       => Self::FlatPower,
             _ => return Err(())
         })
     }
