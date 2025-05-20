@@ -14,9 +14,9 @@ pub enum Parameter {
     OffTime,
     RampStartPower,
     RampEndPower,
-    FlatPower,
     MinLockCurrent,
     CurrentLimit,
+    FlatPower,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -30,9 +30,9 @@ pub enum ParameterValue {
     OffTimeMs(u16),
     RampStartPower(f32),
     RampEndPower(f32),
-    FlatPower(f32),
     MinLockCurrentA(f32),
     CurrentLimitA(f32),
+    FlatPower(f32),
 }
 
 impl ParameterValue {
@@ -47,9 +47,9 @@ impl ParameterValue {
             Self::OffTimeMs(..) => Parameter::OffTime,
             Self::RampStartPower(..) => Parameter::RampStartPower,
             Self::RampEndPower(..) => Parameter::RampEndPower,
-            Self::FlatPower(..) => Parameter::FlatPower,
             Self::MinLockCurrentA(..) => Parameter::MinLockCurrent,
             Self::CurrentLimitA(..) => Parameter::CurrentLimit,
+            Self::FlatPower(..) => Parameter::FlatPower,
         }
     }
 }
@@ -76,9 +76,9 @@ impl TryFrom<(Parameter, u16)> for ParameterValue {
             Parameter::OffTime => Self::OffTimeMs(value),
             Parameter::RampStartPower => Self::RampStartPower(value as f32 / 16383.0),
             Parameter::RampEndPower => Self::RampEndPower(value as f32 / 16383.0),
-            Parameter::FlatPower => Self::FlatPower(value as f32 / 16383.0),
             Parameter::MinLockCurrent => Self::MinLockCurrentA(value as f32 / 256.0),
-            Parameter::CurrentLimit => Self::CurrentLimitA(value as f32 / 32.0)
+            Parameter::CurrentLimit => Self::CurrentLimitA(value as f32 / 32.0),
+            Parameter::FlatPower => Self::FlatPower(value as f32 / 16383.0),
         })
     }
 }
@@ -93,11 +93,11 @@ impl Into<(Parameter, u16)> for ParameterValue {
             Self::StartupTimeUs(time)              => (Parameter::StartupTime, time),
             Self::OnTimeUs(time)                   => (Parameter::OnTime, time / 10),
             Self::OffTimeMs(time)                  => (Parameter::OffTime, time),
-            Self::RampStartPower(power)            => (Parameter::RampStartPower, (power * 16384.0).clamp(0.0, 16383.0) as u16),
-            Self::RampEndPower(power)              => (Parameter::RampEndPower, (power * 16384.0).clamp(0.0, 16383.0) as u16),
-            Self::FlatPower(power)                 => (Parameter::FlatPower, (power * 16384.0).clamp(0.0, 16383.0) as u16),
-            Self::MinLockCurrentA(current)         => (Parameter::MinLockCurrent, (current * 256.0).clamp(0.0, 16383.0) as u16),
-            Self::CurrentLimitA(current)           => (Parameter::CurrentLimit, (current * 32.0).clamp(0.0, 16383.0) as u16),
+            Self::RampStartPower(power)            => (Parameter::RampStartPower, ((power * 16384.0) as i32).clamp(0, 0x3FFF) as u16),
+            Self::RampEndPower(power)              => (Parameter::RampEndPower, ((power * 16384.0) as i32).clamp(0, 0x3FFF) as u16),
+            Self::MinLockCurrentA(current)         => (Parameter::MinLockCurrent, ((current * 256.0) as i32).clamp(0, 0x3FFF) as u16),
+            Self::CurrentLimitA(current)           => (Parameter::CurrentLimit, ((current * 32.0) as i32).clamp(0, 0x3FFF) as u16),
+            Self::FlatPower(power)                 => (Parameter::FlatPower, ((power * 16384.0) as i32).clamp(0, 0x3FFF) as u16),
         }
     }
 }
@@ -193,14 +193,14 @@ const STATISTIC_ID_FEEDBACK_FREQUENCY: u8 = 1;
 #[derive(Copy, Clone, Debug)]
 pub enum StatisticValue {
     MaxPrimaryCurrentA(f32),
-    FeedbackFrequency(f32),
+    FeedbackFrequencykHz(f32),
 }
 
 impl Into<(Statistic, u16)> for StatisticValue {
     fn into(self) -> (Statistic, u16) {
         match self {
             Self::MaxPrimaryCurrentA(current) => (Statistic::MaxPrimaryCurrent, (current * 32.0).clamp(0.0, 16383.0) as u16),
-            Self::FeedbackFrequency(frequency) => (Statistic::FeedbackFrequency, (frequency * 16.0).clamp(0.0, 16383.0) as u16),
+            Self::FeedbackFrequencykHz(frequency) => (Statistic::FeedbackFrequency, (frequency * 16.0).clamp(0.0, 16383.0) as u16),
         }
     }
 }
@@ -211,7 +211,7 @@ impl TryFrom<(Statistic, u16)> for StatisticValue {
         let (stat, value) = x;
         Ok(match stat {
             Statistic::MaxPrimaryCurrent => Self::MaxPrimaryCurrentA(value as f32 / 32.0),
-            Statistic::FeedbackFrequency => Self::FeedbackFrequency(value as f32 / 16.0),
+            Statistic::FeedbackFrequency => Self::FeedbackFrequencykHz(value as f32 / 16.0),
         })
     }
 }
@@ -230,6 +230,7 @@ impl TryFrom<u8> for Statistic {
     fn try_from(value: u8) -> Result<Self, ()> {
         Ok(match value {
             STATISTIC_ID_MAX_PRIMARY_CURRENT => Self::MaxPrimaryCurrent,
+            STATISTIC_ID_FEEDBACK_FREQUENCY => Self::FeedbackFrequency,
             _ => return Err(())
         })
     }
@@ -335,6 +336,9 @@ impl ControllerMessage {
                 CONTROLLER_MESSAGE_ID_SET_PARAM => 4,
                 CONTROLLER_MESSAGE_ID_GET_STAT => 2,
                 CONTROLLER_MESSAGE_ID_RESET_STATS => 1,
+                CONTROLLER_MESSAGE_ID_RUN => 1,
+                CONTROLLER_MESSAGE_ID_STOP => 1,
+                CONTROLLER_MESSAGE_ID_KEEP_ALIVE => 1,
                 CONTROLLER_MESSAGE_ID_PING => 5,
                 _ => {
                     rx_buffer.pop();
