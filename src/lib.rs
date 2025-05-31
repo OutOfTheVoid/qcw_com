@@ -106,6 +106,7 @@ impl Into<(Parameter, u16)> for ParameterValue {
 pub enum RunMode {
     OpenLoop,
     TestClosedLoop,
+    ClosedLoopRamp,
 }
 
 impl Into<u16> for RunMode {
@@ -113,6 +114,7 @@ impl Into<u16> for RunMode {
         match self {
             Self::OpenLoop        => 0,
             Self::TestClosedLoop  => 1,
+            Self::ClosedLoopRamp  => 2,
         }
     }
 }
@@ -123,6 +125,7 @@ impl TryFrom<u16> for RunMode {
         Ok(match value {
             0 => Self::OpenLoop,
             1 => Self::TestClosedLoop,
+            2 => Self::ClosedLoopRamp,
             _ => return Err(()),
         })
     }
