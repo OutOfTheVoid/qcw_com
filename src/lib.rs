@@ -7,6 +7,7 @@ pub use serial_buffer::*;
 pub enum Parameter {
     DelayCompensation,
     StartupFrequency,
+    LockRange,
     RunMode,
     LockTime,
     StartupTime,
@@ -23,6 +24,7 @@ pub enum Parameter {
 pub enum ParameterValue {
     DelayCompensationNS(i16),
     StartupFrequencykHz(f32),
+    LockRangekHz(f32),
     RunMode(RunMode),
     LockTimeUs(u16),
     StartupTimeUs(u16),
@@ -40,6 +42,7 @@ impl ParameterValue {
         match self {
             Self::DelayCompensationNS(..) => Parameter::CurrentLimit,
             Self::StartupFrequencykHz(..) => Parameter::StartupFrequency,
+            Self::LockRangekHz(..) => Parameter::LockRange,
             Self::RunMode(..) => Parameter::RunMode,
             Self::LockTimeUs(..) => Parameter::LockTime,
             Self::StartupTimeUs(..) => Parameter::StartupTime,
@@ -69,6 +72,7 @@ impl TryFrom<(Parameter, u16)> for ParameterValue {
         Ok(match param {
             Parameter::DelayCompensation => Self::DelayCompensationNS(sign_extend_i14(value)),
             Parameter::StartupFrequency => Self::StartupFrequencykHz(value as f32 / 16.0),
+            Parameter::LockRange => Self::LockRangekHz(value as f32 / 16.0),
             Parameter::RunMode => Self::RunMode(RunMode::try_from(value)?),
             Parameter::LockTime => Self::LockTimeUs(value),
             Parameter::StartupTime => Self::StartupTimeUs(value),
@@ -86,18 +90,19 @@ impl TryFrom<(Parameter, u16)> for ParameterValue {
 impl Into<(Parameter, u16)> for ParameterValue {
     fn into(self) -> (Parameter, u16) {
         match self {
-            Self::DelayCompensationNS(delay_ns)    => (Parameter::DelayCompensation, delay_ns as u16),
-            Self::StartupFrequencykHz(frequency_hz) => (Parameter::StartupFrequency, (frequency_hz * 16.0) as u16),
-            Self::RunMode(run_mode)                => (Parameter::RunMode, run_mode.into()),
-            Self::LockTimeUs(time)                 => (Parameter::LockTime, time),
-            Self::StartupTimeUs(time)              => (Parameter::StartupTime, time),
-            Self::OnTimeUs(time)                   => (Parameter::OnTime, time / 10),
-            Self::OffTimeMs(time)                  => (Parameter::OffTime, time),
-            Self::RampStartPower(power)            => (Parameter::RampStartPower, ((power * 16384.0) as i32).clamp(0, 0x3FFF) as u16),
-            Self::RampEndPower(power)              => (Parameter::RampEndPower, ((power * 16384.0) as i32).clamp(0, 0x3FFF) as u16),
-            Self::MinLockCurrentA(current)         => (Parameter::MinLockCurrent, ((current * 256.0) as i32).clamp(0, 0x3FFF) as u16),
-            Self::CurrentLimitA(current)           => (Parameter::CurrentLimit, ((current * 32.0) as i32).clamp(0, 0x3FFF) as u16),
-            Self::FlatPower(power)                 => (Parameter::FlatPower, ((power * 16384.0) as i32).clamp(0, 0x3FFF) as u16),
+            Self::DelayCompensationNS(delay_ns)      => (Parameter::DelayCompensation, delay_ns as u16                                   ),
+            Self::StartupFrequencykHz(frequency_khz) => (Parameter::StartupFrequency,  (frequency_khz * 16.0) as u16                     ),
+            Self::LockRangekHz(frequency_khz)        => (Parameter::LockRange,         (frequency_khz * 16.0) as u16                     ),
+            Self::RunMode(run_mode)                  => (Parameter::RunMode,           run_mode.into()                                   ),
+            Self::LockTimeUs(time)                   => (Parameter::LockTime,          time                                              ),
+            Self::StartupTimeUs(time)                => (Parameter::StartupTime,       time                                              ),
+            Self::OnTimeUs(time)                     => (Parameter::OnTime,            time / 10                                         ),
+            Self::OffTimeMs(time)                    => (Parameter::OffTime,           time                                              ),
+            Self::RampStartPower(power)              => (Parameter::RampStartPower,    ((power * 16384.0) as i32).clamp(0, 0x3FFF) as u16),
+            Self::RampEndPower(power)                => (Parameter::RampEndPower,      ((power * 16384.0) as i32).clamp(0, 0x3FFF) as u16),
+            Self::MinLockCurrentA(current)           => (Parameter::MinLockCurrent,    ((current * 256.0) as i32).clamp(0, 0x3FFF) as u16),
+            Self::CurrentLimitA(current)             => (Parameter::CurrentLimit,      ((current * 32.0) as i32).clamp(0, 0x3FFF) as u16 ),
+            Self::FlatPower(power)                   => (Parameter::FlatPower,         ((power * 16384.0) as i32).clamp(0, 0x3FFF) as u16),
         }
     }
 }
@@ -143,12 +148,14 @@ const PARAMETER_ID_RAMP_END         : u8 = 9;
 const PARAMETER_ID_MIN_LOCK_CURRENT : u8 = 10;
 const PARAMETER_ID_CURRENT_LIMIT    : u8 = 11;
 const PARAMETER_ID_FLAT_POWER       : u8 = 12;
+const PARAMETER_ID_LOCK_RANGE       : u8 = 13;
 
 impl Into<u8> for Parameter {
     fn into(self) -> u8 {
         match self {
             Self::DelayCompensation   => PARAMETER_ID_DELAY_COMP,
             Self::StartupFrequency    => PARAMETER_ID_STARTUP_FREQ,
+            Self::LockRange           => PARAMETER_ID_LOCK_RANGE,
             Self::RunMode             => PARAMETER_ID_RUN_MODE,
             Self::LockTime            => PARAMETER_ID_LOCK_TIME,
             Self::StartupTime         => PARAMETER_ID_STARTUP_TIME,
@@ -405,10 +412,14 @@ pub enum RemoteMessage {
     GetParamResult(ParameterValue),
     GetStatResult(StatisticValue),
     Ping(u32),
+    LockFailed,
+    OcdTripped,
 }
 
 const REMOTE_MESSAGE_ID_GET_PARAM_RESULT: u8 = 0;
 const REMOTE_MESSAGE_ID_GET_STAT_RESULT: u8 = 1;
+const REMOTE_MESSAGE_ID_LOCK_FAILED: u8 = 2;
+const REMOTE_MESSAGE_ID_OCD_TRIPPED: u8 = 3;
 const REMOTE_MESSAGE_ID_PING: u8 = 0x7F;
 
 impl RemoteMessage {
@@ -426,7 +437,6 @@ impl RemoteMessage {
                     false
                 }
             },
-
             Self::GetParamResult(param_value) => {
                 if tx_buffer.free_space() >= 4 {
                     tx_buffer.push(REMOTE_MESSAGE_ID_GET_PARAM_RESULT | MESSAGE_START_BIT);
@@ -451,6 +461,22 @@ impl RemoteMessage {
                     false
                 }
             },
+            Self::LockFailed => {
+                if tx_buffer.free_space() >= 1 {
+                    tx_buffer.push(REMOTE_MESSAGE_ID_LOCK_FAILED | MESSAGE_START_BIT);
+                    true
+                } else {
+                    false
+                }
+            },
+            Self::OcdTripped => {
+                if tx_buffer.free_space() >= 1 {
+                    tx_buffer.push(REMOTE_MESSAGE_ID_OCD_TRIPPED | MESSAGE_START_BIT);
+                    true
+                } else {
+                    false
+                }
+            },
         }
     }
 
@@ -467,6 +493,8 @@ impl RemoteMessage {
                 REMOTE_MESSAGE_ID_GET_PARAM_RESULT => 4,
                 REMOTE_MESSAGE_ID_GET_STAT_RESULT  => 4,
                 REMOTE_MESSAGE_ID_PING             => 5,
+                REMOTE_MESSAGE_ID_LOCK_FAILED      => 1,
+                REMOTE_MESSAGE_ID_OCD_TRIPPED      => 1,
                 _ => { rx_buffer.pop(); return Err(()) }
             };
             if rx_buffer.count() >= length {
@@ -497,6 +525,12 @@ impl RemoteMessage {
                             ((rx_buffer.pop().unwrap() as u32) << 21);
                         Ok(Some(Self::Ping(seq)))
                     },
+                    REMOTE_MESSAGE_ID_LOCK_FAILED => {
+                        Ok(Some(Self::LockFailed))
+                    },
+                    REMOTE_MESSAGE_ID_OCD_TRIPPED => {
+                        Ok(Some(Self::OcdTripped))
+                    }
                     _ => unreachable!()
                 }
             } else {
